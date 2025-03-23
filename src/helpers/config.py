@@ -1,5 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 class Settings(BaseSettings):
 
@@ -8,7 +12,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
 
     class Config:
-        env_file= os.path.join(os.path.dirname(__file__), ".env")
+        model_config= SettingsConfigDict(env_file= ".env", extra="ignore")
 
 
 def get_settings():
