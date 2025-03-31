@@ -1,7 +1,7 @@
-from src.stores.LLMInterface import LLMInterface
+from src.stores.llm.LLMInterface import LLMInterface
 from openai import OpenAI
 import logging
-from src.stores.LLMEnums import OpenAIEnums
+from src.stores.llm.LLMEnums import OpenAIEnums
 
 
 class OpenAIProvider(LLMInterface):
@@ -29,7 +29,7 @@ class OpenAIProvider(LLMInterface):
 
         self.client = OpenAI(
             api_key=self.api_key,
-            api_url=self.api_url,
+            api_url=self.api_url if self.api_url and len(self.api_url) else None,
         )
 
         self.logger = logging.getLogger(__name__)
