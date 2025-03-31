@@ -58,11 +58,21 @@ $ cp .env.example .env
 $ uvicorn main:app --reload --host 0.0.0.0 --port 5000
 ```
 
-## POSTMAN Collection
+## Run Docker Compose Services
 
-Download the postman collection from [/assets/mini-rag-app.postman_collection.json](/assets/mini-rag-app.postman_collection.json)
+```bash
+$ `cd docker`
+$ `cp .env.example .env`
+```
 
-## When is needed for clashes, use the following commands:
+- update `.env` with your credentails
+
+```bash
+$ cd docker
+$ sudo docker compose up -d
+```
+
+### When is needed for clashes, use the following commands:
 
 #### stop container
 
@@ -79,3 +89,8 @@ Download the postman collection from [/assets/mini-rag-app.postman_collection.js
 #### clean the environment
 
 `sudo docker system prune --all`
+
+
+## POSTMAN Collection
+
+Download the postman collection from [/assets/mini-rag-app.postman_collection.json](/assets/mini-rag-app.postman_collection.json)
