@@ -1,5 +1,5 @@
-from src.stores.LLMInterface import LLMInterface
-from src.stores.LLMEnums import CohereEnums, DocumentTypeEnums
+from src.stores.llm.LLMInterface import LLMInterface
+from src.stores.llm.LLMEnums import CohereEnums, DocumentTypeEnums
 import cohere
 import logging
 
@@ -107,6 +107,7 @@ class CohereProvider(LLMInterface):
                 texts=[self.process_text(text)],
                 input_type=input_type,
                 embedding_types=["float"],
+                truncate="NONE",
             )
 
             if not response or not response.embeddings or not response.embeddings.float:
@@ -114,5 +115,3 @@ class CohereProvider(LLMInterface):
                 return None
 
             return response.embeddings.float[0]
-
-        
