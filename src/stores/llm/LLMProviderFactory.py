@@ -1,5 +1,5 @@
-from src.stores.llm.providers import CohereProvider, OpenAIProvider
-from src.stores.llm.LLMEnums import LLMEnums
+from stores.llm.providers import CohereProvider, OpenAIProvider
+from stores.llm.LLMEnums import LLMEnums
 
 
 class LLMProviderFactory:
