@@ -2,6 +2,7 @@ from .BaseController import BaseController
 from models.db_schemes import Project, DataChunk
 from typing import List
 from stores.llm.LLMEnums import DocumentTypeEnums
+import json
 
 
 class NLPController(BaseController):
@@ -29,7 +30,9 @@ class NLPController(BaseController):
             collection_name=collection_name
         )
 
-        return collection_info
+        return json.loads(
+            json.dumps(collection_info, default=lambda x: x.__dict__),
+        )
 
     # index_into_vectordb method
     def index_into_vectordb(
@@ -39,10 +42,10 @@ class NLPController(BaseController):
         chunks_ids: List[int],
         do_reset: bool = False,
     ):
-        # get collection name
+        # step1: get collection name
         collection_name = self.create_collection_name(project_id=project.project_id)
 
-        # manage items
+        # step2: manage items
         texts = [c.chunk_text for c in chunks]
         metadata = [c.chunk_metadata for c in chunks]
         vectors = [
@@ -52,13 +55,13 @@ class NLPController(BaseController):
             for text in texts
         ]
 
-        # create collection if not exists
+        # step3: create collection if not exists
         _ = self.vectordb_client.create_collection(
             collection_name=collection_name,
             embedding_size=self.embedding_client.embedding_size,
             do_reset=do_reset,
         )
-        # insert into vector db
+        # step4: insert into vector db
         _ = self.vectordb_client.insert_many(
             collection_name=collection_name,
             texts=texts,
@@ -68,3 +71,31 @@ class NLPController(BaseController):
         )
 
         return True
+
+    def search_vectordb_collection(self, project: Project, text: str, limit: int = 10):
+
+        # step1: get collection name
+        collection_name = self.create_collection_name(project_id=project.project_id)
+
+        # step2: get text embedding vector
+        vector = self.embedding_client.embed_text(
+            text=text,
+            document_type=DocumentTypeEnums.QUERY.value,
+        )
+
+        if not vector or len(vector) == 0:
+            return False
+
+        # step3: do semantic search
+        results = self.vectordb_client.search_by_vector(
+            collection_name=collection_name,
+            vector=vector,
+            limit=limit,
+        )
+
+        if not results:
+            return False
+
+        return json.loads(
+            json.dumps(results, default=lambda x: x.__dict__),
+        )
