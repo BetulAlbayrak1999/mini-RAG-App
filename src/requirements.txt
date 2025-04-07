@@ -11,6 +11,7 @@ motor==3.6.1
 openai==1.69.0
 cohere==5.13.2
 qdrant-client==1.12.1
-
-
-
+SQLAlchemy==2.0.40
+asyncpg==0.30.0
+alembic==1.15.2
+psycopg2==2.9.10
