@@ -141,7 +141,7 @@ class NLPController(BaseController):
                     "document_prompt",
                     {
                         "doc_num": idx + 1,
-                        "chunk_text": doc.text,
+                        "chunk_text": self.generation_client.process_text(doc.text),
                     },
                 )
                 for idx, doc in enumerate(retrieved_documents)
