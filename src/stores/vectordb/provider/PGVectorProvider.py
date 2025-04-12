@@ -23,9 +23,15 @@ class PGVectorProvider(VectorDBInterface):
     ):
         self.db_client = db_client
         self.default_vector_size = default_vector_size
-        self.distance_method = distance_method
+
         self.index_threshold = index_threshold
 
+        if distance_method == DistanceMethodEnums.COSINE.value:
+            distance_method = PgVectorDistanceMethodEnums.COSINE.value
+        elif distance_method == DistanceMethodEnums.DOT.value:
+            distance_method = PgVectorDistanceMethodEnums.DOT.value
+
+        self.distance_method = distance_method
         self.pgvector_table_prefix = PgVectorTableSchemeEnums._PREFIX.value
         self.logger = logging.getLogger("uvicorn")
         self.default_index_name = (
@@ -46,7 +52,7 @@ class PGVectorProvider(VectorDBInterface):
         async with self.db_client() as session:
             async with session.begin():
                 list_tables = sql_text(
-                    "SELECT * FROM pg_tabels WHERE tablename=:collection_name"
+                    "SELECT * FROM pg_tables WHERE tablename=:collection_name"
                 )
                 result = await session.execute(
                     list_tables, {"collection_name": collection_name}
@@ -55,7 +61,7 @@ class PGVectorProvider(VectorDBInterface):
 
         return record
 
-    async def list_all_collection(self) -> List:
+    async def list_all_collections(self) -> List:
         records = []
         async with self.db_client() as session:
             async with session.begin():
@@ -74,34 +80,37 @@ class PGVectorProvider(VectorDBInterface):
             async with session.begin():
 
                 table_info_sql = sql_text(
-                    """
-                                          SELECT schemaname, tablename, tableowner, tablespace, hasindexes
+                    f"""SELECT schemaname, tablename, tableowner, tablespace, hasindexes
                                           FROM pg_tables
                                           WHERE tablename= :collection_name"""
                 )
-                count_sql = sql_text(f"SELECT COUNT(*) FROM :collection_name")
+                count_sql = sql_text(f"SELECT COUNT(*) FROM {collection_name}")
 
                 table_info = await session.execute(
                     table_info_sql, {"collection_name": collection_name}
                 )
-                record_count = await session.execute(
-                    count_sql, {"collection_name": collection_name}
-                )
+                record_count = await session.execute(count_sql)
 
                 table_data = table_info.fetchone()
                 if not table_data:
                     return None
 
                 return {
-                    "table_info": dict(table_data),
-                    "record_count": record_count,
+                    "table_info": {
+                        "schemaname": table_data[0],
+                        "tablename": table_data[1],
+                        "tableowner": table_data[2],
+                        "tablespace": table_data[3],
+                        "hasindexes": table_data[4],
+                    },
+                    "record_count": record_count.scalar_one(),
                 }
 
     async def delete_collection(self, collection_name: str):
         async with self.db_client() as session:
             async with session.begin():
                 self.logger.info(f"Deleting collection:{collection_name}")
-                delete_sql = sql_text("DROP TABLE IF EXISTS :collection_name")
+                delete_sql = sql_text(f"DROP TABLE IF EXISTS {collection_name}")
                 await session.execute(delete_sql, {"collection_name": collection_name})
                 await session.commit()
         return True
@@ -120,15 +129,16 @@ class PGVectorProvider(VectorDBInterface):
             async with self.db_client() as session:
                 async with session.begin():
                     create_sql = sql_text(
-                        f"CREATE TABLE: {collection_name} ("
-                        f"{PgVectorTableSchemeEnums.ID.value} bigserial PRIMARY KEY, "
-                        f"{PgVectorTableSchemeEnums.TEXT.value}, text"
+                        f"CREATE TABLE {collection_name} ("
+                        f"{PgVectorTableSchemeEnums.ID.value} bigserial PRIMARY KEY,"
+                        f"{PgVectorTableSchemeEnums.TEXT.value} text, "
                         f"{PgVectorTableSchemeEnums.VECTOR.value} vector({embedding_size}), "
                         f"{PgVectorTableSchemeEnums.METADATA.value} jsonb DEFAULT '{{}}', "
                         f"{PgVectorTableSchemeEnums.CHUNK_ID.value} integer, "
                         f"FOREIGN KEY ({PgVectorTableSchemeEnums.CHUNK_ID.value}) REFERENCES chunks(chunk_id)"
                         ")"
                     )
+
                     await session.execute(create_sql)
                     await session.commit()
             return True
@@ -139,15 +149,15 @@ class PGVectorProvider(VectorDBInterface):
         async with self.db_client() as session:
             async with session.begin():
                 check_sql = sql_text(
-                    """
+                    f"""
                     SELECT 1 FROM pg_indexes 
-                    WHERE tablename=:collection_name
-                    AND indexname =  :index_name
+                    WHERE tablename= :collection_name
+                    AND indexname = :index_name
                     """
                 )
                 results = await session.execute(
                     check_sql,
-                    {"collection_name": collection_name, "index_name": index_name},
+                    {"index_name": index_name, "collection_name": collection_name},
                 )
                 return bool(results.scalar_one_or_none())
 
@@ -181,17 +191,21 @@ class PGVectorProvider(VectorDBInterface):
                     f"({PgVectorTableSchemeEnums.TEXT.value}, {PgVectorTableSchemeEnums.VECTOR.value}, {PgVectorTableSchemeEnums.METADATA.value}, {PgVectorTableSchemeEnums.CHUNK_ID.value})"
                     "VALUES (:text, :vector, :metadata, :chunk_id)"
                 )
-
+                metadata_json = json.dumps(
+                    metadata, ensure_ascii=False if metadata is not None else "{}"
+                )
                 await session.execute(
                     insert_sql,
                     {
                         "text": text,
                         "vector": "[" + ",".join([str(v) for v in vector]) + "]",
-                        "metadata": metadata,
+                        "metadata": metadata_json,
                         "chunk_id": record_id,
                     },
                 )
                 await session.commit()
+        await self.create_vector_index(collection_name=collection_name)
+
         return True
 
     async def insert_many(
@@ -231,13 +245,18 @@ class PGVectorProvider(VectorDBInterface):
                     for _text, _vector, _metadata, _record_id in zip(
                         batch_texts, batch_vectors, batch_metadata, batch_record_ids
                     ):
+                        metadata_json = (
+                            json.dumps(_metadata, ensure_ascii=False)
+                            if _metadata is not None
+                            else "{}"
+                        )
                         values.append(
                             {
                                 "text": _text,
                                 "vector": "["
                                 + ",".join([str(v) for v in _vector])
                                 + "]",
-                                "metadata": _metadata,
+                                "metadata": metadata_json,
                                 "chunk_id": _record_id,
                             }
                         )
@@ -252,6 +271,8 @@ class PGVectorProvider(VectorDBInterface):
                     )
 
                     await session.execute(batch_insert_sql, values)
+        await self.create_vector_index(collection_name=collection_name)
+
         return True
 
     async def search_by_vector(
@@ -266,7 +287,7 @@ class PGVectorProvider(VectorDBInterface):
             )
             return False
 
-        vector = "[" + +",".join([str(v) for v in vector]) + "]"
+        vector = "[" +",".join([str(v) for v in vector]) + "]"
         async with self.db_client() as session:
             async with session.begin():
                 search_sql = sql_text(
@@ -298,7 +319,6 @@ class PGVectorProvider(VectorDBInterface):
                 count_sql = sql_text(f"SELECT COUNT(*) FROM {collection_name}")
                 result = await session.execute(count_sql)
                 records_count = result.scalar_one()
-
                 if records_count < self.index_threshold:
                     return False
 
@@ -311,7 +331,6 @@ class PGVectorProvider(VectorDBInterface):
                     f"CREATE INDEX {index_name} ON {collection_name} "
                     f"USING {index_type} ({PgVectorTableSchemeEnums.VECTOR.value} {self.distance_method})"
                 )
-
                 await session.execute(create_index_sql)
                 self.logger.info(
                     f"END: Created vector index for collection: {collection_name}"
